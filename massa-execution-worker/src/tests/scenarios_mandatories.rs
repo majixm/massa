@@ -870,7 +870,7 @@ fn create_execute_sc_operation(
     };
     let op = Operation::new_wrapped(
         Operation {
-            fee: Amount::from_mantissa_scale(1, 0),
+            fee: Amount::from_mantissa_scale(100000, 0),
             expire_period: 10,
             op,
         },
@@ -894,7 +894,7 @@ fn create_execute_sc_operation_with_datastore(
     };
     let op = Operation::new_wrapped(
         Operation {
-            fee: Amount::from_mantissa_scale(1, 0),
+            fee: Amount::from_mantissa_scale(100000, 0),
             expire_period: 10,
             op,
         },
