@@ -1,8 +1,9 @@
 // Copyright (c) 2022 MASSA LABS <info@massa.net>
 
-use jsonrpc_core::serde::Deserialize;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+
+use serde::Deserialize;
 
 /// API settings.
 /// the API settings
