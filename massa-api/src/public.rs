@@ -3,7 +3,8 @@
 
 use crate::config::APIConfig;
 use crate::error::ApiError;
-use crate::{EndpointsServer, Public, RpcServer, StopHandle, Value, API};
+use crate::{MassaRpcServer, Public, RpcServer, StopHandle, Value, API};
+use async_trait::async_trait;
 use jsonrpsee::core::{Error as JsonRpseeError, RpcResult};
 use massa_consensus_exports::{ConsensusCommandSender, ConsensusConfig};
 use massa_execution_exports::{
@@ -89,7 +90,7 @@ impl API<Public> {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl RpcServer for API<Public> {
     async fn serve(self, url: &SocketAddr) -> Result<StopHandle, JsonRpseeError> {
         crate::serve(self, url).await
@@ -97,8 +98,8 @@ impl RpcServer for API<Public> {
 }
 
 #[doc(hidden)]
-#[async_trait::async_trait]
-impl EndpointsServer for API<Public> {
+#[async_trait]
+impl MassaRpcServer for API<Public> {
     async fn stop_node(&self) -> RpcResult<()> {
         crate::wrong_api::<()>()
     }
@@ -143,8 +144,11 @@ impl EndpointsServer for API<Public> {
                     match deserializer.deserialize::<DeserializeError>(&v) {
                         Ok((_, deserialized)) => Some(deserialized),
                         Err(e) => {
-                            let err_str = format!("Operation datastore error: {}", e);
-                            return Err(ApiError::InconsistencyError(err_str).into());
+                            return Err(ApiError::InconsistencyError(format!(
+                                "Operation datastore error: {}",
+                                e
+                            ))
+                            .into())
                         }
                     }
                 }
@@ -305,13 +309,9 @@ impl EndpointsServer for API<Public> {
         let pool_command_sender = self.0.pool_command_sender.clone();
         let node_id = self.0.node_id;
         let config = CompactConfig::default();
-        let now_result = MassaTime::now(compensation_millis);
-
-        let now = match now_result {
+        let now = match MassaTime::now(compensation_millis) {
             Ok(now) => now,
-            Err(e) => {
-                return Err(ApiError::from(e).into());
-            }
+            Err(e) => return Err(ApiError::from(e).into()),
         };
 
         let last_slot_result = get_latest_block_slot_at_timestamp(
@@ -320,12 +320,9 @@ impl EndpointsServer for API<Public> {
             consensus_settings.genesis_timestamp,
             now,
         );
-
         let last_slot = match last_slot_result {
             Ok(last_slot) => last_slot,
-            Err(e) => {
-                return Err(ApiError::from(e).into());
-            }
+            Err(e) => return Err(ApiError::from(e).into()),
         };
 
         let execution_stats = execution_controller.get_stats();
@@ -338,27 +335,23 @@ impl EndpointsServer for API<Public> {
 
         let consensus_stats = match consensus_stats_result {
             Ok(consensus_stats) => consensus_stats,
-            Err(e) => {
-                return Err(ApiError::from(e).into());
-            }
+            Err(e) => return Err(ApiError::from(e).into()),
         };
 
         let network_stats = match network_stats_resultat {
             Ok(network_stats) => network_stats,
-            Err(e) => {
-                return Err(ApiError::from(e).into());
-            }
+            Err(e) => return Err(ApiError::from(e).into()),
+        };
+
+        let peers = match peers_result {
+            Ok(peers) => peers,
+            Err(e) => return Err(ApiError::from(e).into()),
         };
 
         let pool_stats = (
             pool_command_sender.get_operation_count(),
             pool_command_sender.get_endorsement_count(),
         );
-
-        let peers = match peers_result {
-            Ok(peers) => peers,
-            Err(e) => return Err(ApiError::from(e).into()),
-        };
 
         let next_slot_result = last_slot
             .unwrap_or_else(|| Slot::new(0, 0))
@@ -399,7 +392,6 @@ impl EndpointsServer for API<Public> {
     async fn get_cliques(&self) -> RpcResult<Vec<Clique>> {
         let consensus_command_sender = self.0.consensus_command_sender.clone();
         let clicques_result = consensus_command_sender.get_cliques().await;
-
         match clicques_result {
             Ok(cliques) => Ok(cliques),
             Err(e) => Err(ApiError::from(e).into()),
@@ -411,13 +403,9 @@ impl EndpointsServer for API<Public> {
         let cfg = self.0.consensus_config.clone();
         let compensation_millis = self.0.compensation_millis;
 
-        let now_result = MassaTime::now(compensation_millis);
-
-        let now = match now_result {
+        let now = match MassaTime::now(compensation_millis) {
             Ok(now) => now,
-            Err(e) => {
-                return Err(ApiError::from(e).into());
-            }
+            Err(e) => return Err(ApiError::from(e).into()),
         };
 
         let latest_block_slot_at_timestamp_result = get_latest_block_slot_at_timestamp(
@@ -431,9 +419,7 @@ impl EndpointsServer for API<Public> {
             Ok(curr_cycle) => curr_cycle
                 .unwrap_or_else(|| Slot::new(0, 0))
                 .get_cycle(cfg.periods_per_cycle),
-            Err(e) => {
-                return Err(ApiError::from(e).into());
-            }
+            Err(e) => return Err(ApiError::from(e).into()),
         };
 
         let mut staker_vec = execution_controller
@@ -485,11 +471,11 @@ impl EndpointsServer for API<Public> {
                 .unique()
                 .cloned()
                 .collect();
-            let involved_block_statuses_result = consensus_command_sender
-                .get_block_statuses(&involved_blocks)
-                .await;
 
-            let involved_block_statuses = match involved_block_statuses_result {
+            let involved_block_statuses = match consensus_command_sender
+                .get_block_statuses(&involved_blocks)
+                .await
+            {
                 Ok(block_statues) => block_statues,
                 Err(e) => {
                     return Err(ApiError::from(e).into());
@@ -583,6 +569,7 @@ impl EndpointsServer for API<Public> {
                     return Err(ApiError::from(e).into());
                 }
             };
+
             let block_statuses: PreHashMap<BlockId, BlockGraphStatus> = involved_blocks
                 .into_iter()
                 .zip(involved_block_statuses.into_iter())
@@ -630,16 +617,12 @@ impl EndpointsServer for API<Public> {
             }
         };
 
-        let block_statuses_resultat = consensus_command_sender.get_block_statuses(&[id]).await;
-
-        let graph_status = match block_statuses_resultat {
+        let graph_status = match consensus_command_sender.get_block_statuses(&[id]).await {
             Ok(block_status) => block_status
                 .into_iter()
                 .next()
                 .expect("expected get_block_statuses to return one element"),
-            Err(e) => {
-                return Err(ApiError::from(e).into());
-            }
+            Err(e) => return Err(ApiError::from(e).into()),
         };
 
         let is_final = graph_status == BlockGraphStatus::Final;
@@ -663,10 +646,11 @@ impl EndpointsServer for API<Public> {
     async fn get_blockclique_block_by_slot(&self, slot: Slot) -> RpcResult<Option<Block>> {
         let consensus_command_sender = self.0.consensus_command_sender.clone();
         let storage = self.0.storage.clone_without_refs();
-        let block_id_result = consensus_command_sender
+
+        let block_id_option = match consensus_command_sender
             .get_blockclique_block_at_slot(slot)
-            .await;
-        let block_id_option = match block_id_result {
+            .await
+        {
             Ok(graph) => graph,
             Err(e) => return Err(ApiError::from(e).into()),
         };
@@ -703,11 +687,10 @@ impl EndpointsServer for API<Public> {
             Err(e) => return Err(ApiError::from(e).into()),
         };
 
-        let graph_result = consensus_command_sender
+        let graph = match consensus_command_sender
             .get_block_graph_status(start_slot, end_slot)
-            .await;
-
-        let graph = match graph_result {
+            .await
+        {
             Ok(graph) => graph,
             Err(e) => return Err(ApiError::from(e).into()),
         };
@@ -939,8 +922,7 @@ impl EndpointsServer for API<Public> {
             })
             .map(|op| match op {
                 Ok(operation) => {
-                    let verify_signature_result = operation.verify_signature();
-                    let _verify_signature = match verify_signature_result {
+                    let _verify_signature = match operation.verify_signature() {
                         Ok(()) => (),
                         Err(e) => return Err(ApiError::from(e).into()),
                     };
@@ -953,8 +935,7 @@ impl EndpointsServer for API<Public> {
         let ids: Vec<OperationId> = verified_ops.iter().map(|op| op.id).collect();
         cmd_sender.add_operations(to_send.clone());
 
-        let propagate_operation_result = protocol_sender.propagate_operations(to_send).await;
-        let _propagate_operation = match propagate_operation_result {
+        let _propagate_operation = match protocol_sender.propagate_operations(to_send).await {
             Ok(()) => (),
             Err(e) => return Err(ApiError::from(e).into()),
         };

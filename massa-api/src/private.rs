@@ -2,8 +2,9 @@
 
 use crate::config::APIConfig;
 use crate::error::ApiError;
-use crate::{EndpointsServer, Private, RpcServer, StopHandle, Value, API};
+use crate::{MassaRpcServer, Private, RpcServer, StopHandle, Value, API};
 
+use async_trait::async_trait;
 use jsonrpsee::core::{Error as JsonRpseeError, RpcResult};
 use massa_consensus_exports::{ConsensusCommandSender, ConsensusConfig};
 use massa_execution_exports::ExecutionController;
@@ -61,7 +62,7 @@ impl API<Private> {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl RpcServer for API<Private> {
     async fn serve(self, url: &SocketAddr) -> Result<StopHandle, JsonRpseeError> {
         crate::serve(self, url).await
@@ -69,8 +70,8 @@ impl RpcServer for API<Private> {
 }
 
 #[doc(hidden)]
-#[async_trait::async_trait]
-impl EndpointsServer for API<Private> {
+#[async_trait]
+impl MassaRpcServer for API<Private> {
     async fn stop_node(&self) -> RpcResult<()> {
         let stop = self.0.stop_node_channel.clone();
         stop.send(())
@@ -81,30 +82,23 @@ impl EndpointsServer for API<Private> {
 
     async fn node_sign_message(&self, message: Vec<u8>) -> RpcResult<PubkeySig> {
         let network_command_sender = self.0.network_command_sender.clone();
-        let result = network_command_sender.node_sign_message(message).await;
-        match result {
+        match network_command_sender.node_sign_message(message).await {
             Ok(public_key_signature) => return Ok(public_key_signature),
-            Err(e) => {
-                return Err(ApiError::from(e).into());
-            }
+            Err(e) => return Err(ApiError::from(e).into()),
         };
     }
 
     async fn add_staking_secret_keys(&self, secret_keys: Vec<String>) -> RpcResult<()> {
         let keypairs = match secret_keys.iter().map(|x| KeyPair::from_str(x)).collect() {
             Ok(keypairs) => keypairs,
-            Err(e) => {
-                return Err(ApiError::BadRequest(e.to_string()).into());
-            }
+            Err(e) => return Err(ApiError::BadRequest(e.to_string()).into()),
         };
 
         let node_wallet = self.0.node_wallet.clone();
         let mut w_wallet = node_wallet.write();
         match w_wallet.add_keypairs(keypairs) {
             Ok(_) => return Ok(()),
-            Err(e) => {
-                return Err(ApiError::from(e).into());
-            }
+            Err(e) => return Err(ApiError::from(e).into()),
         };
     }
 
@@ -127,9 +121,7 @@ impl EndpointsServer for API<Private> {
         let mut w_wallet = node_wallet.write();
         match w_wallet.remove_addresses(&addresses) {
             Ok(()) => return Ok(()),
-            Err(e) => {
-                return Err(ApiError::from(e).into());
-            }
+            Err(e) => return Err(ApiError::from(e).into()),
         };
     }
 
@@ -143,9 +135,7 @@ impl EndpointsServer for API<Private> {
         let network_command_sender = self.0.network_command_sender.clone();
         match network_command_sender.node_ban_by_ips(ips).await {
             Ok(()) => return Ok(()),
-            Err(e) => {
-                return Err(ApiError::from(e).into());
-            }
+            Err(e) => return Err(ApiError::from(e).into()),
         };
     }
 
@@ -153,9 +143,7 @@ impl EndpointsServer for API<Private> {
         let network_command_sender = self.0.network_command_sender.clone();
         match network_command_sender.node_ban_by_ids(ids).await {
             Ok(()) => return Ok(()),
-            Err(e) => {
-                return Err(ApiError::from(e).into());
-            }
+            Err(e) => return Err(ApiError::from(e).into()),
         };
     }
 
@@ -163,9 +151,7 @@ impl EndpointsServer for API<Private> {
         let network_command_sender = self.0.network_command_sender.clone();
         match network_command_sender.node_unban_by_ids(ids).await {
             Ok(()) => return Ok(()),
-            Err(e) => {
-                return Err(ApiError::from(e).into());
-            }
+            Err(e) => return Err(ApiError::from(e).into()),
         };
     }
 
@@ -173,9 +159,7 @@ impl EndpointsServer for API<Private> {
         let network_command_sender = self.0.network_command_sender.clone();
         match network_command_sender.node_unban_ips(ips).await {
             Ok(()) => return Ok(()),
-            Err(e) => {
-                return Err(ApiError::from(e).into());
-            }
+            Err(e) => return Err(ApiError::from(e).into()),
         };
     }
 
@@ -234,9 +218,7 @@ impl EndpointsServer for API<Private> {
         let network_command_sender = self.0.network_command_sender.clone();
         match network_command_sender.whitelist(ips).await {
             Ok(()) => return Ok(()),
-            Err(e) => {
-                return Err(ApiError::from(e).into());
-            }
+            Err(e) => return Err(ApiError::from(e).into()),
         };
     }
 
@@ -244,9 +226,7 @@ impl EndpointsServer for API<Private> {
         let network_command_sender = self.0.network_command_sender.clone();
         match network_command_sender.remove_from_whitelist(ips).await {
             Ok(()) => return Ok(()),
-            Err(e) => {
-                return Err(ApiError::from(e).into());
-            }
+            Err(e) => return Err(ApiError::from(e).into()),
         };
     }
 

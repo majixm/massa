@@ -101,12 +101,12 @@ pub struct API<T>(T);
 
 /// Used to manage the API
 #[async_trait::async_trait]
-pub trait RpcServer: EndpointsServer {
+pub trait RpcServer: MassaRpcServer {
     /// Start the API
-    async fn serve(self, _: &SocketAddr) -> Result<StopHandle, JsonRpseeError>;
+    async fn serve(self, url: &SocketAddr) -> Result<StopHandle, JsonRpseeError>;
 }
 
-async fn serve(api: impl EndpointsServer, url: &SocketAddr) -> Result<StopHandle, JsonRpseeError> {
+async fn serve(api: impl MassaRpcServer, url: &SocketAddr) -> Result<StopHandle, JsonRpseeError> {
     let server = ServerBuilder::new()
         .max_request_body_size(50 * 1024 * 1024)
         .build(url)
@@ -137,9 +137,9 @@ impl StopHandle {
     }
 }
 
-/// Exposed API endpoints
+/// Exposed API methods
 #[rpc(server)]
-pub trait Endpoints {
+pub trait MassaRpc {
     /// Gracefully stop the node.
     #[method(name = "stop_node")]
     async fn stop_node(&self) -> RpcResult<()>;
